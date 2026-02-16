@@ -1,7 +1,9 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { LayoutDashboard, Home, CalendarDays, CreditCard, Users, LogOut, Menu, X } from "lucide-react";
+import { useTheme } from "@/hooks/useTheme";
+import { LayoutDashboard, Home, CalendarDays, CreditCard, Users, LogOut, Menu, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
 
 const navItems = [
@@ -14,6 +16,7 @@ const navItems = [
 
 const AdminLayout = () => {
   const { signOut, user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -67,11 +70,18 @@ const AdminLayout = () => {
 
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 items-center gap-4 border-b bg-card px-6 lg:hidden">
-          <button onClick={() => setSidebarOpen(true)}>
-            <Menu className="h-5 w-5" />
-          </button>
-          <span className="font-heading text-lg font-semibold">VillaHermia</span>
+        <header className="flex h-16 items-center justify-between border-b bg-card px-6">
+          <div className="flex items-center gap-4 lg:hidden">
+            <button onClick={() => setSidebarOpen(true)}>
+              <Menu className="h-5 w-5" />
+            </button>
+            <span className="font-heading text-lg font-semibold">VillaHermia</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Sun className="h-4 w-4 text-muted-foreground" />
+            <Switch checked={theme === "dark"} onCheckedChange={toggleTheme} />
+            <Moon className="h-4 w-4 text-muted-foreground" />
+          </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />

@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { ThemeProvider } from "@/hooks/useTheme";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import PropertiesManagement from "./pages/PropertiesManagement";
@@ -32,27 +33,28 @@ const LoginRedirect = () => {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<LoginRedirect />} />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/properties" element={<PropertiesManagement />} />
-              <Route path="/bookings" element={<BookingsManagement />} />
-              <Route path="/payments" element={<PaymentsManagement />} />
-              <Route path="/users" element={<UsersManagement />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
+    <ThemeProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <AuthProvider>
+            <Routes>
+              <Route path="/login" element={<LoginRedirect />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/properties" element={<PropertiesManagement />} />
+                <Route path="/bookings" element={<BookingsManagement />} />
+                <Route path="/payments" element={<PaymentsManagement />} />
+                <Route path="/users" element={<UsersManagement />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
-
 export default App;
