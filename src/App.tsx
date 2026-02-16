@@ -17,10 +17,13 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, isAdmin, loading } = useAuth();
+  const { user, isAdmin, loading, signOut } = useAuth();
   if (loading) return <div className="flex h-screen items-center justify-center text-muted-foreground">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (!isAdmin) return <div className="flex h-screen items-center justify-center text-muted-foreground">Access denied. Admin only.</div>;
+  if (!isAdmin) {
+    signOut();
+    return <Navigate to="/login" replace />;
+  }
   return <>{children}</>;
 };
 

@@ -55,6 +55,7 @@ const LoginPage = () => {
       if (error) {
         toast({ title: "Login failed", description: error.message, variant: "destructive" });
       } else {
+        // Check will happen via ProtectedRoute; non-admins get signed out
         navigate("/dashboard");
       }
     }
