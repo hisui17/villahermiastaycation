@@ -5,6 +5,7 @@ import { LayoutDashboard, Home, CalendarDays, CreditCard, Users, LogOut, Menu, S
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
+import villaLogo from "@/assets/villa-logo.jpg";
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -24,9 +25,7 @@ const AdminLayout = () => {
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-sidebar transition-transform duration-200 lg:static lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6">
-          <div className="h-8 w-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
-            <Home className="h-4 w-4 text-sidebar-primary-foreground" />
-          </div>
+          <img src={villaLogo} alt="VillaHermia Logo" className="h-9 w-9 rounded-full object-cover" />
           <span className="font-heading text-lg font-semibold text-sidebar-accent-foreground">VillaHermia</span>
         </div>
 
