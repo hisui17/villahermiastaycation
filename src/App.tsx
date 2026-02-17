@@ -1,9 +1,11 @@
+import { db } from "./firebase";
+import { collection, addDoc } from "firebase/firestore";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { FirebaseAuthProvider, useFirebaseAuth } from "./context/FirebaseAuthContext";
 import { ThemeProvider } from "@/hooks/useTheme";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -16,48 +18,96 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+
+// ? Protected Route using Firebase Auth
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, isAdmin, loading, signOut } = useAuth();
-  if (loading) return <div className="flex h-screen items-center justify-center text-muted-foreground">Loading...</div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (!isAdmin) {
-    signOut();
-    return <Navigate to="/login" replace />;
-  }
-  return <>{children}</>;
+    const { user, loading } = useFirebaseAuth();
+
+    if (loading) {
+        return (
+            <div className="flex h-screen items-center justify-center text-muted-foreground">
+                Loading...
+            </div>
+        );
+    }
+
+    if (!user) {
+        return <Navigate to="/login" replace />;
+    }
+
+    return <>{children}</>;
 };
 
+
+// ? Redirect logged-in users
 const LoginRedirect = () => {
-  const { user, isAdmin, loading } = useAuth();
-  if (loading) return null;
-  if (user && isAdmin) return <Navigate to="/dashboard" replace />;
-  return <LoginPage />;
+    const { user, loading } = useFirebaseAuth();
+
+    if (loading) return null;
+
+    if (user) return <Navigate to="/dashboard" replace />;
+
+    return <LoginPage />;
 };
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <ThemeProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <AuthProvider>
-            <Routes>
-              <Route path="/login" element={<LoginRedirect />} />
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/properties" element={<PropertiesManagement />} />
-                <Route path="/bookings" element={<BookingsManagement />} />
-                <Route path="/payments" element={<PaymentsManagement />} />
-                <Route path="/users" element={<UsersManagement />} />
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </AuthProvider>
-        </BrowserRouter>
-      </TooltipProvider>
-    </ThemeProvider>
-  </QueryClientProvider>
-);
+
+const App = () => {
+
+    const testFirebase = async () => {
+        try {
+            await addDoc(collection(db, "test"), {
+                message: "Firebase is connected!",
+                createdAt: new Date()
+            });
+            alert("Success! Check Firestore.");
+        } catch (error) {
+            console.error("Error:", error);
+        }
+    };
+
+    return (
+        <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+                <TooltipProvider>
+                    <Toaster />
+                    <Sonner />
+                    <BrowserRouter>
+
+                        {/* ? Correct Provider */}
+                        <FirebaseAuthProvider>
+
+                            <button onClick={testFirebase}>
+                                Test Firebase
+                            </button>
+
+                            <Routes>
+                                <Route path="/login" element={<LoginRedirect />} />
+                                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+                                <Route
+                                    element={
+                                        <ProtectedRoute>
+                                            <AdminLayout />
+                                        </ProtectedRoute>
+                                    }
+                                >
+                                    <Route path="/dashboard" element={<DashboardPage />} />
+                                    <Route path="/properties" element={<PropertiesManagement />} />
+                                    <Route path="/bookings" element={<BookingsManagement />} />
+                                    <Route path="/payments" element={<PaymentsManagement />} />
+                                    <Route path="/users" element={<UsersManagement />} />
+                                </Route>
+
+                                <Route path="*" element={<NotFound />} />
+                            </Routes>
+
+                        </FirebaseAuthProvider>
+
+                    </BrowserRouter>
+                </TooltipProvider>
+            </ThemeProvider>
+        </QueryClientProvider>
+    );
+};
+
 export default App;
