@@ -20,33 +20,39 @@ export type Database = {
           check_in_date: string
           check_out_date: string
           created_at: string
+          guest_name: string
           id: string
+          num_guests: number
           property_id: string
           total_price: number
           updated_at: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           booking_status?: string
           check_in_date: string
           check_out_date: string
           created_at?: string
+          guest_name?: string
           id?: string
+          num_guests?: number
           property_id: string
           total_price: number
           updated_at?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           booking_status?: string
           check_in_date?: string
           check_out_date?: string
           created_at?: string
+          guest_name?: string
           id?: string
+          num_guests?: number
           property_id?: string
           total_price?: number
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
