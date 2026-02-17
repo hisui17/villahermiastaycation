@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
-import { Home, Sun, Moon } from "lucide-react"; 
+import { Sun, Moon } from "lucide-react";
+import villaLogo from "@/assets/villa-logo.jpg";
 import { db } from "../firebase";
 import { collection, addDoc, doc, setDoc } from "firebase/firestore";
 import { supabase } from "@/integrations/supabase/client";
@@ -123,9 +124,7 @@ const LoginPage = () => {
 
             <div className="w-full max-w-sm">
                 <div className="mb-8 text-center">
-                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary">
-                        <Home className="h-7 w-7 text-primary-foreground" />
-                    </div>
+                    <img src={villaLogo} alt="VillaHermia Logo" className="mx-auto mb-4 h-20 w-20 rounded-full object-cover" />
                     <h1 className="text-2xl font-bold">VillaHermia</h1>
                     <p className="mt-1 text-sm text-muted-foreground">
                         Staycation Management System
