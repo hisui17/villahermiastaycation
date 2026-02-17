@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useFirebaseAuth } from "../context/FirebaseAuthContext";
 import { useTheme } from "@/hooks/useTheme";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
-import { Home, Sun, Moon } from "lucide-react";
+import { Home, Sun, Moon } from "lucide-react"; 
 import { db } from "../firebase";
 import { collection, addDoc, doc, setDoc } from "firebase/firestore";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,22 +20,11 @@ const LoginPage = () => {
     const [confirmPassword, setConfirmPassword] = useState("");
     const [loading, setLoading] = useState(false);
 
-    const { signIn, signUp } = useAuth();
+    const { signIn, signUp } = useFirebaseAuth();
     const { theme, toggleTheme } = useTheme();
     const navigate = useNavigate();
 
-    // 🔥 Test Firestore connection
-    const testFirebase = async () => {
-        try {
-            await addDoc(collection(db, "test"), {
-                message: "Firebase is connected!",
-                createdAt: new Date(),
-            });
-            alert("Success! Check Firestore.");
-        } catch (error) {
-            console.error(error);
-        }
-    };
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -131,12 +120,6 @@ const LoginPage = () => {
                 <Moon className="h-4 w-4 text-muted-foreground" />
             </div>
 
-            {/* Firebase Test Button */}
-            <div className="absolute left-4 top-4">
-                <Button onClick={testFirebase}>
-                    Test Firebase
-                </Button>
-            </div>
 
             <div className="w-full max-w-sm">
                 <div className="mb-8 text-center">

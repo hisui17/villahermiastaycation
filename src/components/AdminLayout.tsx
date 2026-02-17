@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useFirebaseAuth } from "../context/FirebaseAuthContext";
 import { useTheme } from "@/hooks/useTheme";
 import { LayoutDashboard, Home, CalendarDays, CreditCard, Users, LogOut, Menu, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ const navItems = [
 ];
 
 const AdminLayout = () => {
-  const { signOut, user } = useAuth();
+    const { user, logout } = useFirebaseAuth();
   const { theme, toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -56,7 +56,7 @@ const AdminLayout = () => {
             variant="ghost"
             size="sm"
             className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            onClick={signOut}
+            onClick={logout}
           >
             <LogOut className="mr-2 h-4 w-4" /> Sign Out
           </Button>
