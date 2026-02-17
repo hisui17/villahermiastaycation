@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Home, Users, CalendarDays, DollarSign, TrendingUp, Clock } from "lucide-react";
 import { format } from "date-fns";
+import BookingCalendar from "@/components/BookingCalendar";
 
 const DashboardPage = () => {
   const [stats, setStats] = useState({ users: 0, properties: 0, bookings: 0, revenue: 0, pending: 0, confirmed: 0 });
@@ -96,6 +97,9 @@ const DashboardPage = () => {
           </div>
         )}
       </div>
+
+      {/* Booking Calendar Section */}
+      <BookingCalendar />
     </div>
   );
 };
