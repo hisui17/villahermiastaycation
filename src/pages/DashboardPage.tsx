@@ -62,43 +62,39 @@ const DashboardPage = () => {
         ))}
       </div>
 
+      {/* Recent Bookings as notification-style cards */}
       <div className="mt-8">
         <h2 className="font-heading text-lg font-semibold">Recent Bookings</h2>
-        <div className="mt-4 overflow-x-auto rounded-xl border bg-card shadow-card">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Guest</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Property</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Dates</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Amount</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentBookings.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No bookings yet</td></tr>
-              ) : recentBookings.map((b) => (
-                <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{(b.profiles as any)?.full_name || "—"}</p>
-                    <p className="text-xs text-muted-foreground">{(b.profiles as any)?.email}</p>
-                  </td>
-                  <td className="px-4 py-3">{b.properties?.name}</td>
-                  <td className="px-4 py-3 text-muted-foreground">
+        {recentBookings.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">No bookings yet</p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {recentBookings.map((b) => (
+              <div key={b.id} className="flex items-center gap-4 rounded-xl border bg-card p-4 shadow-card animate-fade-in">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${statusBadge(b.booking_status)}`}>
+                  <CalendarDays className="h-5 w-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">
+                    {b.guest_name || (b.profiles as any)?.full_name || "Guest"}{" "}
+                    <span className="text-muted-foreground font-normal">booked</span>{" "}
+                    {b.properties?.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
                     {format(new Date(b.check_in_date), "MMM d")} – {format(new Date(b.check_out_date), "MMM d, yyyy")}
-                  </td>
-                  <td className="px-4 py-3 font-medium">₱{Number(b.total_price).toLocaleString()}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>
-                      {b.booking_status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    {b.num_guests > 0 && ` · ${b.num_guests} pax`}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-semibold">₱{Number(b.total_price).toLocaleString()}</p>
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>
+                    {b.booking_status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

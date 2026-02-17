@@ -5,9 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Plus, Pencil, Trash2, Search, CalendarDays } from "lucide-react";
 
 interface Property {
   id: string;
@@ -22,13 +24,17 @@ interface Property {
 }
 
 const emptyForm = { name: "", location: "", description: "", price_per_night: "", max_guests: "2", amenities: "", availability_status: true };
+const emptyBookingForm = { guest_name: "", property_id: "", num_guests: "1", check_in_date: "", check_out_date: "", price_per_night: "" };
 
 const PropertiesManagement = () => {
+  const { user } = useAuth();
   const [properties, setProperties] = useState<Property[]>([]);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bookingDialogOpen, setBookingDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Property | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [bookingForm, setBookingForm] = useState(emptyBookingForm);
 
   const fetchProperties = async () => {
     const { data } = await supabase.from("properties").select("*").order("created_at", { ascending: false });
@@ -46,6 +52,15 @@ const PropertiesManagement = () => {
       amenities: p.amenities?.join(", ") || "", availability_status: p.availability_status,
     });
     setDialogOpen(true);
+  };
+
+  const openBooking = (p?: Property) => {
+    setBookingForm({
+      ...emptyBookingForm,
+      property_id: p?.id || "",
+      price_per_night: p ? String(p.price_per_night) : "",
+    });
+    setBookingDialogOpen(true);
   };
 
   const handleSave = async () => {
@@ -69,6 +84,33 @@ const PropertiesManagement = () => {
     fetchProperties();
   };
 
+  const handleSaveBooking = async () => {
+    if (!bookingForm.guest_name || !bookingForm.property_id || !bookingForm.check_in_date || !bookingForm.check_out_date) {
+      return toast({ title: "Missing fields", description: "Please fill in all required fields", variant: "destructive" });
+    }
+    const checkIn = new Date(bookingForm.check_in_date);
+    const checkOut = new Date(bookingForm.check_out_date);
+    if (checkOut <= checkIn) {
+      return toast({ title: "Invalid dates", description: "Check-out must be after check-in", variant: "destructive" });
+    }
+    const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
+    const totalPrice = nights * Number(bookingForm.price_per_night);
+
+    const { error } = await supabase.from("bookings").insert({
+      guest_name: bookingForm.guest_name,
+      property_id: bookingForm.property_id,
+      num_guests: Number(bookingForm.num_guests),
+      check_in_date: bookingForm.check_in_date,
+      check_out_date: bookingForm.check_out_date,
+      total_price: totalPrice,
+      booking_status: "confirmed",
+      user_id: user?.id || null,
+    });
+    if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
+    toast({ title: "Booking created", description: `${nights} night(s) — ₱${totalPrice.toLocaleString()}` });
+    setBookingDialogOpen(false);
+  };
+
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("properties").delete().eq("id", id);
     if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -85,6 +127,12 @@ const PropertiesManagement = () => {
     p.name.toLowerCase().includes(search.toLowerCase()) || p.location.toLowerCase().includes(search.toLowerCase())
   );
 
+  const selectedProperty = properties.find((p) => p.id === bookingForm.property_id);
+  const nights = bookingForm.check_in_date && bookingForm.check_out_date
+    ? Math.max(0, Math.ceil((new Date(bookingForm.check_out_date).getTime() - new Date(bookingForm.check_in_date).getTime()) / (1000 * 60 * 60 * 24)))
+    : 0;
+  const computedTotal = nights * Number(bookingForm.price_per_night || 0);
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -92,7 +140,10 @@ const PropertiesManagement = () => {
           <h1 className="font-heading text-2xl font-bold">Properties</h1>
           <p className="text-sm text-muted-foreground">Manage staycation property listings</p>
         </div>
-        <Button onClick={openAdd}><Plus className="mr-2 h-4 w-4" /> Add Property</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => openBooking()}><CalendarDays className="mr-2 h-4 w-4" /> Add Booking</Button>
+          <Button onClick={openAdd}><Plus className="mr-2 h-4 w-4" /> Add Property</Button>
+        </div>
       </div>
 
       <div className="relative mt-6 max-w-sm">
@@ -126,6 +177,7 @@ const PropertiesManagement = () => {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => openBooking(p)} title="Add Booking"><CalendarDays className="h-4 w-4 text-primary" /></Button>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(p)}><Pencil className="h-4 w-4" /></Button>
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   </div>
@@ -136,6 +188,7 @@ const PropertiesManagement = () => {
         </table>
       </div>
 
+      {/* Property Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{editing ? "Edit Property" : "Add Property"}</DialogTitle></DialogHeader>
@@ -153,6 +206,44 @@ const PropertiesManagement = () => {
               <Label>Available for booking</Label>
             </div>
             <Button onClick={handleSave} className="w-full">{editing ? "Update Property" : "Add Property"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Booking Dialog */}
+      <Dialog open={bookingDialogOpen} onOpenChange={setBookingDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Add Booking</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Guest Name *</Label><Input placeholder="Full name of guest" value={bookingForm.guest_name} onChange={(e) => setBookingForm({ ...bookingForm, guest_name: e.target.value })} /></div>
+            <div>
+              <Label>Unit / Property *</Label>
+              <Select value={bookingForm.property_id} onValueChange={(v) => {
+                const prop = properties.find((p) => p.id === v);
+                setBookingForm({ ...bookingForm, property_id: v, price_per_night: prop ? String(prop.price_per_night) : bookingForm.price_per_night });
+              }}>
+                <SelectTrigger><SelectValue placeholder="Select property" /></SelectTrigger>
+                <SelectContent>
+                  {properties.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name} — {p.location}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>No. of Pax</Label><Input type="number" min="1" value={bookingForm.num_guests} onChange={(e) => setBookingForm({ ...bookingForm, num_guests: e.target.value })} /></div>
+              <div><Label>Amount/Night (₱)</Label><Input type="number" value={bookingForm.price_per_night} onChange={(e) => setBookingForm({ ...bookingForm, price_per_night: e.target.value })} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Check-in *</Label><Input type="date" value={bookingForm.check_in_date} onChange={(e) => setBookingForm({ ...bookingForm, check_in_date: e.target.value })} /></div>
+              <div><Label>Check-out *</Label><Input type="date" value={bookingForm.check_out_date} onChange={(e) => setBookingForm({ ...bookingForm, check_out_date: e.target.value })} /></div>
+            </div>
+            {nights > 0 && (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <p className="text-muted-foreground">{nights} night(s) × ₱{Number(bookingForm.price_per_night).toLocaleString()} = <span className="font-semibold text-foreground">₱{computedTotal.toLocaleString()}</span></p>
+              </div>
+            )}
+            <Button onClick={handleSaveBooking} className="w-full">Create Booking</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -40,7 +40,7 @@ const BookingsManagement = () => {
     if (filter !== "all" && b.booking_status !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
-      const guest = ((b.profiles as any)?.full_name || "").toLowerCase();
+      const guest = (b.guest_name || (b.profiles as any)?.full_name || "").toLowerCase();
       const prop = (b.properties?.name || "").toLowerCase();
       if (!guest.includes(q) && !prop.includes(q)) return false;
     }
@@ -75,6 +75,7 @@ const BookingsManagement = () => {
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Guest</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Property</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Pax</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Check-in</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Check-out</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Total</th>
@@ -84,14 +85,15 @@ const BookingsManagement = () => {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No bookings found</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No bookings found</td></tr>
             ) : filtered.map((b) => (
               <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3">
-                  <p className="font-medium">{(b.profiles as any)?.full_name || "—"}</p>
-                  <p className="text-xs text-muted-foreground">{(b.profiles as any)?.email}</p>
+                  <p className="font-medium">{b.guest_name || (b.profiles as any)?.full_name || "—"}</p>
+                  {(b.profiles as any)?.email && <p className="text-xs text-muted-foreground">{(b.profiles as any)?.email}</p>}
                 </td>
                 <td className="px-4 py-3">{b.properties?.name}</td>
+                <td className="px-4 py-3">{b.num_guests || "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{format(new Date(b.check_in_date), "MMM d, yyyy")}</td>
                 <td className="px-4 py-3 text-muted-foreground">{format(new Date(b.check_out_date), "MMM d, yyyy")}</td>
                 <td className="px-4 py-3 font-medium">₱{Number(b.total_price).toLocaleString()}</td>
