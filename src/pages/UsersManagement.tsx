@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "../firebase";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 import { Search } from "lucide-react";
@@ -9,17 +10,23 @@ const UsersManagement = () => {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase.from("profiles").select("*, user_roles(role)").order("created_at", { ascending: false });
-      setUsers(data || []);
+    const fetchUsers = async () => {
+      const snap = await getDocs(query(collection(db, "users"), orderBy("createdAt", "desc")));
+      setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     };
-    fetch();
+    fetchUsers();
   }, []);
 
   const filtered = users.filter((u) => {
     const q = search.toLowerCase();
-    return u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
+    return u.fullName?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
   });
+
+  const formatDate = (val: any) => {
+    if (!val) return "—";
+    if (val?.toDate) return format(val.toDate(), "MMM d, yyyy");
+    return format(new Date(val), "MMM d, yyyy");
+  };
 
   return (
     <div>
@@ -37,27 +44,23 @@ const UsersManagement = () => {
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Email</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Contact</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Role</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Joined</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No users found</td></tr>
+              <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No users found</td></tr>
             ) : filtered.map((u) => (
               <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                <td className="px-4 py-3 font-medium">{u.full_name || "—"}</td>
+                <td className="px-4 py-3 font-medium">{u.fullName || "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
-                <td className="px-4 py-3 text-muted-foreground">{u.contact_number || "—"}</td>
                 <td className="px-4 py-3">
-                  {(u.user_roles as any[])?.map((r: any) => (
-                    <span key={r.role} className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${r.role === "admin" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-                      {r.role}
-                    </span>
-                  ))}
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${u.role === "admin" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                    {u.role || "guest"}
+                  </span>
                 </td>
-                <td className="px-4 py-3 text-muted-foreground">{format(new Date(u.created_at), "MMM d, yyyy")}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDate(u.createdAt)}</td>
               </tr>
             ))}
           </tbody>

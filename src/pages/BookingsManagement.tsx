@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "../firebase";
+import { collection, getDocs, doc, updateDoc, query, orderBy, serverTimestamp } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -13,19 +14,33 @@ const BookingsManagement = () => {
   const [search, setSearch] = useState("");
 
   const fetchBookings = async () => {
-    const { data } = await supabase
-      .from("bookings")
-      .select("*, properties(name, location), profiles:user_id(full_name, email)")
-      .order("created_at", { ascending: false });
-    setBookings(data || []);
+    const [bookingsSnap, propertiesSnap] = await Promise.all([
+      getDocs(query(collection(db, "bookings"), orderBy("createdAt", "desc"))),
+      getDocs(collection(db, "properties")),
+    ]);
+
+    const propertiesMap: Record<string, any> = {};
+    propertiesSnap.forEach((d) => { propertiesMap[d.id] = { id: d.id, ...d.data() }; });
+
+    const bks = bookingsSnap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      properties: propertiesMap[(d.data() as any).property_id] || null,
+    }));
+
+    setBookings(bks);
   };
 
   useEffect(() => { fetchBookings(); }, []);
 
   const updateStatus = async (id: string, status: string) => {
-    const { error } = await supabase.from("bookings").update({ booking_status: status }).eq("id", id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else { toast({ title: `Booking ${status}` }); fetchBookings(); }
+    try {
+      await updateDoc(doc(db, "bookings", id), { booking_status: status, updatedAt: serverTimestamp() });
+      toast({ title: `Booking ${status}` });
+      fetchBookings();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const statusBadge = (s: string) => {
@@ -36,11 +51,17 @@ const BookingsManagement = () => {
     return m[s] || "bg-muted text-muted-foreground";
   };
 
+  const formatDate = (val: any) => {
+    if (!val) return "—";
+    if (val?.toDate) return format(val.toDate(), "MMM d, yyyy");
+    return format(new Date(val), "MMM d, yyyy");
+  };
+
   const filtered = bookings.filter((b) => {
     if (filter !== "all" && b.booking_status !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
-      const guest = (b.guest_name || (b.profiles as any)?.full_name || "").toLowerCase();
+      const guest = (b.guest_name || "").toLowerCase();
       const prop = (b.properties?.name || "").toLowerCase();
       if (!guest.includes(q) && !prop.includes(q)) return false;
     }
@@ -89,13 +110,12 @@ const BookingsManagement = () => {
             ) : filtered.map((b) => (
               <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3">
-                  <p className="font-medium">{b.guest_name || (b.profiles as any)?.full_name || "—"}</p>
-                  {(b.profiles as any)?.email && <p className="text-xs text-muted-foreground">{(b.profiles as any)?.email}</p>}
+                  <p className="font-medium">{b.guest_name || "—"}</p>
                 </td>
-                <td className="px-4 py-3">{b.properties?.name}</td>
+                <td className="px-4 py-3">{b.properties?.name || "—"}</td>
                 <td className="px-4 py-3">{b.num_guests || "—"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{format(new Date(b.check_in_date), "MMM d, yyyy")}</td>
-                <td className="px-4 py-3 text-muted-foreground">{format(new Date(b.check_out_date), "MMM d, yyyy")}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDate(b.check_in_date)}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDate(b.check_out_date)}</td>
                 <td className="px-4 py-3 font-medium">₱{Number(b.total_price).toLocaleString()}</td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>{b.booking_status}</span>

@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "../firebase";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { format, eachDayOfInterval, parseISO, isSameDay } from "date-fns";
+import { format, eachDayOfInterval, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { CalendarDays } from "lucide-react";
 
@@ -22,11 +23,6 @@ interface Booking {
   total_price: number;
 }
 
-interface BookedDay {
-  date: Date;
-  bookings: Booking[];
-}
-
 const BookingCalendar = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [selectedProperty, setSelectedProperty] = useState<string>("");
@@ -35,37 +31,45 @@ const BookingCalendar = () => {
   const [selectedDay, setSelectedDay] = useState<Date | undefined>();
 
   useEffect(() => {
-    supabase.from("properties").select("id, name").then(({ data }) => {
-      if (data) setProperties(data);
+    getDocs(collection(db, "properties")).then((snap) => {
+      setProperties(snap.docs.map((d) => ({ id: d.id, name: (d.data() as any).name })));
     });
   }, []);
 
   useEffect(() => {
-    if (!selectedProperty) {
-      setBookings([]);
-      return;
-    }
-    supabase
-      .from("bookings")
-      .select("id, guest_name, num_guests, check_in_date, check_out_date, booking_status, total_price")
-      .eq("property_id", selectedProperty)
-      .not("booking_status", "eq", "cancelled")
-      .then(({ data }) => setBookings(data || []));
+    if (!selectedProperty) { setBookings([]); return; }
+    getDocs(
+      query(
+        collection(db, "bookings"),
+        where("property_id", "==", selectedProperty),
+      )
+    ).then((snap) => {
+      const bks = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as any))
+        .filter((b: any) => b.booking_status !== "cancelled")
+        .map((b: any) => ({
+          ...b,
+          // Normalize Firestore Timestamp or string dates to strings
+          check_in_date: b.check_in_date?.toDate ? format(b.check_in_date.toDate(), "yyyy-MM-dd") : b.check_in_date,
+          check_out_date: b.check_out_date?.toDate ? format(b.check_out_date.toDate(), "yyyy-MM-dd") : b.check_out_date,
+        }));
+      setBookings(bks);
+    });
   }, [selectedProperty]);
 
   const bookedDayMap = useMemo(() => {
     const map = new Map<string, Booking[]>();
     bookings.forEach((b) => {
-      const days = eachDayOfInterval({
-        start: parseISO(b.check_in_date),
-        end: parseISO(b.check_out_date),
-      });
-      days.forEach((d) => {
-        const key = format(d, "yyyy-MM-dd");
-        const existing = map.get(key) || [];
-        existing.push(b);
-        map.set(key, existing);
-      });
+      if (!b.check_in_date || !b.check_out_date) return;
+      try {
+        const days = eachDayOfInterval({ start: parseISO(b.check_in_date), end: parseISO(b.check_out_date) });
+        days.forEach((d) => {
+          const key = format(d, "yyyy-MM-dd");
+          const existing = map.get(key) || [];
+          existing.push(b);
+          map.set(key, existing);
+        });
+      } catch (_) {}
     });
     return map;
   }, [bookings]);

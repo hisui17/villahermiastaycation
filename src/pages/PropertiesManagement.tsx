@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "../firebase";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,8 +9,8 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/useAuth";
 import { Plus, Pencil, Trash2, Search, CalendarDays } from "lucide-react";
+import { useFirebaseAuth } from "@/context/FirebaseAuthContext";
 
 interface Property {
   id: string;
@@ -20,14 +21,14 @@ interface Property {
   max_guests: number;
   amenities: string[];
   availability_status: boolean;
-  created_at: string;
+  createdAt: any;
 }
 
 const emptyForm = { name: "", location: "", description: "", price_per_night: "", max_guests: "2", amenities: "", availability_status: true };
 const emptyBookingForm = { guest_name: "", property_id: "", num_guests: "1", check_in_date: "", check_out_date: "", price_per_night: "" };
 
 const PropertiesManagement = () => {
-  const { user } = useAuth();
+  const { user } = useFirebaseAuth();
   const [properties, setProperties] = useState<Property[]>([]);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -37,8 +38,8 @@ const PropertiesManagement = () => {
   const [bookingForm, setBookingForm] = useState(emptyBookingForm);
 
   const fetchProperties = async () => {
-    const { data } = await supabase.from("properties").select("*").order("created_at", { ascending: false });
-    setProperties((data as Property[]) || []);
+    const snap = await getDocs(query(collection(db, "properties"), orderBy("createdAt", "desc")));
+    setProperties(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Property)));
   };
 
   useEffect(() => { fetchProperties(); }, []);
@@ -71,17 +72,19 @@ const PropertiesManagement = () => {
       availability_status: form.availability_status,
     };
 
-    if (editing) {
-      const { error } = await supabase.from("properties").update(payload).eq("id", editing.id);
-      if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
-      toast({ title: "Property updated" });
-    } else {
-      const { error } = await supabase.from("properties").insert(payload);
-      if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
-      toast({ title: "Property added" });
+    try {
+      if (editing) {
+        await updateDoc(doc(db, "properties", editing.id), { ...payload, updatedAt: serverTimestamp() });
+        toast({ title: "Property updated" });
+      } else {
+        await addDoc(collection(db, "properties"), { ...payload, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        toast({ title: "Property added" });
+      }
+      setDialogOpen(false);
+      fetchProperties();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     }
-    setDialogOpen(false);
-    fetchProperties();
   };
 
   const handleSaveBooking = async () => {
@@ -96,30 +99,38 @@ const PropertiesManagement = () => {
     const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
     const totalPrice = nights * Number(bookingForm.price_per_night);
 
-    const { error } = await supabase.from("bookings").insert({
-      guest_name: bookingForm.guest_name,
-      property_id: bookingForm.property_id,
-      num_guests: Number(bookingForm.num_guests),
-      check_in_date: bookingForm.check_in_date,
-      check_out_date: bookingForm.check_out_date,
-      total_price: totalPrice,
-      booking_status: "confirmed",
-      user_id: user?.id || null,
-    });
-    if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
-    toast({ title: "Booking created", description: `${nights} night(s) — ₱${totalPrice.toLocaleString()}` });
-    setBookingDialogOpen(false);
+    try {
+      await addDoc(collection(db, "bookings"), {
+        guest_name: bookingForm.guest_name,
+        property_id: bookingForm.property_id,
+        num_guests: Number(bookingForm.num_guests),
+        check_in_date: bookingForm.check_in_date,
+        check_out_date: bookingForm.check_out_date,
+        total_price: totalPrice,
+        booking_status: "confirmed",
+        user_id: user?.uid || null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      toast({ title: "Booking created", description: `${nights} night(s) — ₱${totalPrice.toLocaleString()}` });
+      setBookingDialogOpen(false);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("properties").delete().eq("id", id);
-    if (error) return toast({ title: "Error", description: error.message, variant: "destructive" });
-    toast({ title: "Property deleted" });
-    fetchProperties();
+    try {
+      await deleteDoc(doc(db, "properties", id));
+      toast({ title: "Property deleted" });
+      fetchProperties();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const toggleAvailability = async (id: string, current: boolean) => {
-    await supabase.from("properties").update({ availability_status: !current }).eq("id", id);
+    await updateDoc(doc(db, "properties", id), { availability_status: !current, updatedAt: serverTimestamp() });
     fetchProperties();
   };
 
