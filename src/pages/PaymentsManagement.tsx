@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "../firebase";
+import { collection, getDocs, doc, updateDoc, query, orderBy, serverTimestamp } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
@@ -13,19 +14,40 @@ const PaymentsManagement = () => {
   const [proofUrl, setProofUrl] = useState<string | null>(null);
 
   const fetchPayments = async () => {
-    const { data } = await supabase
-      .from("payments")
-      .select("*, bookings(id, properties(name), profiles:user_id(full_name, email))")
-      .order("created_at", { ascending: false });
-    setPayments(data || []);
+    const [paymentsSnap, bookingsSnap, propertiesSnap] = await Promise.all([
+      getDocs(query(collection(db, "payments"), orderBy("created_at", "desc"))),
+      getDocs(collection(db, "bookings")),
+      getDocs(collection(db, "properties")),
+    ]);
+
+    const propertiesMap: Record<string, any> = {};
+    propertiesSnap.forEach((d) => { propertiesMap[d.id] = { id: d.id, ...d.data() }; });
+
+    const bookingsMap: Record<string, any> = {};
+    bookingsSnap.forEach((d) => {
+      const data = d.data() as any;
+      bookingsMap[d.id] = { id: d.id, ...data, properties: propertiesMap[data.property_id] || null };
+    });
+
+    const pays = paymentsSnap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      bookings: bookingsMap[(d.data() as any).booking_id] || null,
+    }));
+
+    setPayments(pays);
   };
 
   useEffect(() => { fetchPayments(); }, []);
 
   const updateStatus = async (id: string, status: string) => {
-    const { error } = await supabase.from("payments").update({ payment_status: status }).eq("id", id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else { toast({ title: `Payment marked as ${status}` }); fetchPayments(); }
+    try {
+      await updateDoc(doc(db, "payments", id), { payment_status: status, updatedAt: serverTimestamp() });
+      toast({ title: `Payment marked as ${status}` });
+      fetchPayments();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const statusBadge = (s: string) => {
@@ -35,6 +57,12 @@ const PaymentsManagement = () => {
       paid: "bg-success/10 text-success",
     };
     return m[s] || "bg-muted text-muted-foreground";
+  };
+
+  const formatDate = (val: any) => {
+    if (!val) return "—";
+    if (val?.toDate) return format(val.toDate(), "MMM d, yyyy");
+    return format(new Date(val), "MMM d, yyyy");
   };
 
   const filtered = payments.filter((p) => filter === "all" || p.payment_status === filter);
@@ -75,14 +103,14 @@ const PaymentsManagement = () => {
             ) : filtered.map((p) => (
               <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3">
-                  <p className="font-medium">{(p.bookings?.profiles as any)?.full_name || "—"}</p>
+                  <p className="font-medium">{p.bookings?.guest_name || "—"}</p>
                 </td>
-                <td className="px-4 py-3">{p.bookings?.properties?.name}</td>
+                <td className="px-4 py-3">{p.bookings?.properties?.name || "—"}</td>
                 <td className="px-4 py-3 font-medium">₱{Number(p.amount).toLocaleString()}</td>
-                <td className="px-4 py-3 text-muted-foreground">{p.payment_date ? format(new Date(p.payment_date), "MMM d, yyyy") : "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{formatDate(p.payment_date)}</td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadge(p.payment_status)}`}>
-                    {p.payment_status.replace("_", " ")}
+                    {(p.payment_status || "").replace("_", " ")}
                   </span>
                 </td>
                 <td className="px-4 py-3">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "../firebase";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { Home, Users, CalendarDays, DollarSign, TrendingUp, Clock } from "lucide-react";
 import { format } from "date-fns";
 import BookingCalendar from "@/components/BookingCalendar";
@@ -9,20 +10,42 @@ const DashboardPage = () => {
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
 
   useEffect(() => {
-    const fetch = async () => {
-      const [{ count: users }, { count: properties }, { data: bookings }] = await Promise.all([
-        supabase.from("profiles").select("*", { count: "exact", head: true }),
-        supabase.from("properties").select("*", { count: "exact", head: true }),
-        supabase.from("bookings").select("*, properties(name), profiles:user_id(full_name, email)").order("created_at", { ascending: false }),
+    const fetchData = async () => {
+      const [usersSnap, propertiesSnap, bookingsSnap] = await Promise.all([
+        getDocs(collection(db, "users")),
+        getDocs(collection(db, "properties")),
+        getDocs(query(collection(db, "bookings"), orderBy("createdAt", "desc"))),
       ]);
-      const bks = bookings || [];
-      const revenue = bks.filter((b: any) => b.booking_status === "completed" || b.booking_status === "confirmed").reduce((s: number, b: any) => s + Number(b.total_price), 0);
+
+      const propertiesMap: Record<string, any> = {};
+      propertiesSnap.forEach((d) => { propertiesMap[d.id] = { id: d.id, ...d.data() }; });
+
+      const bks: any[] = bookingsSnap.docs.map((d) => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          ...data,
+          properties: propertiesMap[data.property_id] || null,
+        };
+      });
+
+      const revenue = bks
+        .filter((b: any) => b.booking_status === "completed" || b.booking_status === "confirmed")
+        .reduce((s: number, b: any) => s + Number(b.total_price), 0);
       const pending = bks.filter((b: any) => b.booking_status === "pending").length;
       const confirmed = bks.filter((b: any) => b.booking_status === "confirmed").length;
-      setStats({ users: users || 0, properties: properties || 0, bookings: bks.length, revenue, pending, confirmed });
+
+      setStats({
+        users: usersSnap.size,
+        properties: propertiesSnap.size,
+        bookings: bks.length,
+        revenue,
+        pending,
+        confirmed,
+      });
       setRecentBookings(bks.slice(0, 8));
     };
-    fetch();
+    fetchData();
   }, []);
 
   const cards = [
@@ -44,6 +67,18 @@ const DashboardPage = () => {
     return map[status] || "bg-muted text-muted-foreground";
   };
 
+  const formatDate = (val: any) => {
+    if (!val) return "";
+    if (val?.toDate) return format(val.toDate(), "MMM d");
+    return format(new Date(val), "MMM d");
+  };
+
+  const formatDateFull = (val: any) => {
+    if (!val) return "";
+    if (val?.toDate) return format(val.toDate(), "MMM d, yyyy");
+    return format(new Date(val), "MMM d, yyyy");
+  };
+
   return (
     <div>
       <h1 className="font-heading text-2xl font-bold">Dashboard</h1>
@@ -63,7 +98,7 @@ const DashboardPage = () => {
         ))}
       </div>
 
-      {/* Recent Bookings as notification-style cards */}
+      {/* Recent Bookings */}
       <div className="mt-8">
         <h2 className="font-heading text-lg font-semibold">Recent Bookings</h2>
         {recentBookings.length === 0 ? (
@@ -77,12 +112,12 @@ const DashboardPage = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">
-                    {b.guest_name || (b.profiles as any)?.full_name || "Guest"}{" "}
+                    {b.guest_name || "Guest"}{" "}
                     <span className="text-muted-foreground font-normal">booked</span>{" "}
                     {b.properties?.name}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {format(new Date(b.check_in_date), "MMM d")} – {format(new Date(b.check_out_date), "MMM d, yyyy")}
+                    {formatDate(b.check_in_date)} – {formatDateFull(b.check_out_date)}
                     {b.num_guests > 0 && ` · ${b.num_guests} pax`}
                   </p>
                 </div>

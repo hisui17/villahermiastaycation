@@ -1,5 +1,3 @@
-import { db } from "./firebase";
-import { collection, addDoc } from "firebase/firestore";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -53,18 +51,6 @@ const LoginRedirect = () => {
 
 const App = () => {
 
-    const testFirebase = async () => {
-        try {
-            await addDoc(collection(db, "test"), {
-                message: "Firebase is connected!",
-                createdAt: new Date()
-            });
-            alert("Success! Check Firestore.");
-        } catch (error) {
-            console.error("Error:", error);
-        }
-    };
-
     return (
         <QueryClientProvider client={queryClient}>
             <ThemeProvider>
@@ -75,11 +61,6 @@ const App = () => {
 
                         {/* ? Correct Provider */}
                         <FirebaseAuthProvider>
-
-                            <button onClick={testFirebase}>
-                                Test Firebase
-                            </button>
-
                             <Routes>
                                 <Route path="/login" element={<LoginRedirect />} />
                                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
