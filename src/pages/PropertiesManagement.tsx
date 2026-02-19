@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { db } from "../firebase";
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp, where } from "firebase/firestore";
+import { parseISO, format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ const PropertiesManagement = () => {
   const [editing, setEditing] = useState<Property | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [bookingForm, setBookingForm] = useState(emptyBookingForm);
+  const [dateConflict, setDateConflict] = useState<string | null>(null);
 
   const fetchProperties = async () => {
     const snap = await getDocs(query(collection(db, "properties"), orderBy("createdAt", "desc")));
@@ -61,7 +63,30 @@ const PropertiesManagement = () => {
       property_id: p?.id || "",
       price_per_night: p ? String(p.price_per_night) : "",
     });
+    setDateConflict(null);
     setBookingDialogOpen(true);
+  };
+
+  // Check for date overlap with existing confirmed/pending bookings
+  const checkDateConflict = async (propertyId: string, checkIn: string, checkOut: string): Promise<string | null> => {
+    if (!propertyId || !checkIn || !checkOut) return null;
+    const snap = await getDocs(query(
+      collection(db, "bookings"),
+      where("property_id", "==", propertyId),
+      where("booking_status", "!=", "cancelled"),
+    ));
+    const newIn = parseISO(checkIn);
+    const newOut = parseISO(checkOut);
+    for (const d of snap.docs) {
+      const data = d.data() as any;
+      if (!data.check_in_date || !data.check_out_date) continue;
+      const existIn = typeof data.check_in_date === "string" ? parseISO(data.check_in_date) : data.check_in_date.toDate();
+      const existOut = typeof data.check_out_date === "string" ? parseISO(data.check_out_date) : data.check_out_date.toDate();
+      if (newIn < existOut && newOut > existIn) {
+        return `Dates conflict with existing booking for ${data.guest_name || "a guest"} (${format(existIn, "MMM d")} – ${format(existOut, "MMM d, yyyy")})`;
+      }
+    }
+    return null;
   };
 
   const handleSave = async () => {
@@ -95,6 +120,11 @@ const PropertiesManagement = () => {
     const checkOut = new Date(bookingForm.check_out_date);
     if (checkOut <= checkIn) {
       return toast({ title: "Invalid dates", description: "Check-out must be after check-in", variant: "destructive" });
+    }
+    const conflict = await checkDateConflict(bookingForm.property_id, bookingForm.check_in_date, bookingForm.check_out_date);
+    if (conflict) {
+      setDateConflict(conflict);
+      return;
     }
     const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
     const totalPrice = nights * Number(bookingForm.price_per_night);
@@ -246,13 +276,16 @@ const PropertiesManagement = () => {
               <div><Label>Amount/Night (₱)</Label><Input type="number" value={bookingForm.price_per_night} onChange={(e) => setBookingForm({ ...bookingForm, price_per_night: e.target.value })} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Check-in *</Label><Input type="date" value={bookingForm.check_in_date} onChange={(e) => setBookingForm({ ...bookingForm, check_in_date: e.target.value })} /></div>
-              <div><Label>Check-out *</Label><Input type="date" value={bookingForm.check_out_date} onChange={(e) => setBookingForm({ ...bookingForm, check_out_date: e.target.value })} /></div>
+              <div><Label>Check-in *</Label><Input type="date" value={bookingForm.check_in_date} onChange={(e) => { setBookingForm({ ...bookingForm, check_in_date: e.target.value }); setDateConflict(null); }} /></div>
+              <div><Label>Check-out *</Label><Input type="date" value={bookingForm.check_out_date} onChange={(e) => { setBookingForm({ ...bookingForm, check_out_date: e.target.value }); setDateConflict(null); }} /></div>
             </div>
             {nights > 0 && (
               <div className="rounded-lg bg-muted/50 p-3 text-sm">
                 <p className="text-muted-foreground">{nights} night(s) × ₱{Number(bookingForm.price_per_night).toLocaleString()} = <span className="font-semibold text-foreground">₱{computedTotal.toLocaleString()}</span></p>
               </div>
+            )}
+            {dateConflict && (
+              <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{dateConflict}</div>
             )}
             <Button onClick={handleSaveBooking} className="w-full">Create Booking</Button>
           </div>

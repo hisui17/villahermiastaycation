@@ -1,18 +1,17 @@
 import { useEffect, useState } from "react";
 import { db } from "../firebase";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
-import { Home, Users, CalendarDays, DollarSign, TrendingUp, Clock } from "lucide-react";
+import { Home, CalendarDays, DollarSign, TrendingUp, Clock } from "lucide-react";
 import { format } from "date-fns";
 import BookingCalendar from "@/components/BookingCalendar";
 
 const DashboardPage = () => {
-  const [stats, setStats] = useState({ users: 0, properties: 0, bookings: 0, revenue: 0, pending: 0, confirmed: 0 });
+  const [stats, setStats] = useState({ properties: 0, bookings: 0, revenue: 0, pending: 0, confirmed: 0 });
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
-      const [usersSnap, propertiesSnap, bookingsSnap] = await Promise.all([
-        getDocs(collection(db, "users")),
+      const [propertiesSnap, bookingsSnap] = await Promise.all([
         getDocs(collection(db, "properties")),
         getDocs(query(collection(db, "bookings"), orderBy("createdAt", "desc"))),
       ]);
@@ -22,37 +21,26 @@ const DashboardPage = () => {
 
       const bks: any[] = bookingsSnap.docs.map((d) => {
         const data = d.data() as any;
-        return {
-          id: d.id,
-          ...data,
-          properties: propertiesMap[data.property_id] || null,
-        };
+        return { id: d.id, ...data, properties: propertiesMap[data.property_id] || null };
       });
 
+      // Gross income = only completed bookings
       const revenue = bks
-        .filter((b: any) => b.booking_status === "completed" || b.booking_status === "confirmed")
+        .filter((b: any) => b.booking_status === "completed")
         .reduce((s: number, b: any) => s + Number(b.total_price), 0);
       const pending = bks.filter((b: any) => b.booking_status === "pending").length;
       const confirmed = bks.filter((b: any) => b.booking_status === "confirmed").length;
 
-      setStats({
-        users: usersSnap.size,
-        properties: propertiesSnap.size,
-        bookings: bks.length,
-        revenue,
-        pending,
-        confirmed,
-      });
+      setStats({ properties: propertiesSnap.size, bookings: bks.length, revenue, pending, confirmed });
       setRecentBookings(bks.slice(0, 8));
     };
     fetchData();
   }, []);
 
   const cards = [
-    { label: "Total Revenue", value: `₱${stats.revenue.toLocaleString()}`, icon: DollarSign, accent: "bg-primary/10 text-primary" },
+    { label: "Gross Income", value: `₱${stats.revenue.toLocaleString()}`, icon: DollarSign, accent: "bg-primary/10 text-primary" },
     { label: "Total Bookings", value: stats.bookings, icon: CalendarDays, accent: "bg-accent/10 text-accent" },
     { label: "Properties", value: stats.properties, icon: Home, accent: "bg-info/10 text-info" },
-    { label: "Users", value: stats.users, icon: Users, accent: "bg-warning/10 text-warning" },
     { label: "Pending", value: stats.pending, icon: Clock, accent: "bg-warning/10 text-warning" },
     { label: "Confirmed", value: stats.confirmed, icon: TrendingUp, accent: "bg-success/10 text-success" },
   ];
@@ -84,7 +72,7 @@ const DashboardPage = () => {
       <h1 className="font-heading text-2xl font-bold">Dashboard</h1>
       <p className="mt-1 text-sm text-muted-foreground">Overview of VillaHermia Staycation operations</p>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {cards.map((c) => (
           <div key={c.label} className="rounded-xl border bg-card p-4 shadow-card animate-fade-in">
             <div className="flex items-center justify-between">
