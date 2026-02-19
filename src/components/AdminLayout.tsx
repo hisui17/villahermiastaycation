@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useFirebaseAuth } from "../context/FirebaseAuthContext";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Home, CalendarDays, CreditCard, Users, LogOut, Menu, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, Home, CalendarDays, BarChart3, LogOut, Menu, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
@@ -11,8 +11,7 @@ const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/properties", label: "Properties", icon: Home },
   { to: "/bookings", label: "Bookings", icon: CalendarDays },
-  { to: "/payments", label: "Payments", icon: CreditCard },
-  { to: "/users", label: "Users", icon: Users },
+  { to: "/payments", label: "Analytics", icon: BarChart3 },
 ];
 
 const AdminLayout = () => {

@@ -1,43 +1,137 @@
 import { useEffect, useState } from "react";
 import { db } from "../firebase";
-import { collection, getDocs, doc, updateDoc, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, where } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { format } from "date-fns";
-import { Check, X, Search } from "lucide-react";
+import { format, eachDayOfInterval, parseISO, isWithinInterval } from "date-fns";
+import { Check, X, Search, Pencil, Trash2 } from "lucide-react";
 
 const BookingsManagement = () => {
   const [bookings, setBookings] = useState<any[]>([]);
+  const [properties, setProperties] = useState<any[]>([]);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ guest_name: "", num_guests: "", check_in_date: "", check_out_date: "", price_per_night: "" });
+  const [dateConflict, setDateConflict] = useState<string | null>(null);
 
-  const fetchBookings = async () => {
+  const fetchAll = async () => {
     const [bookingsSnap, propertiesSnap] = await Promise.all([
       getDocs(query(collection(db, "bookings"), orderBy("createdAt", "desc"))),
       getDocs(collection(db, "properties")),
     ]);
-
     const propertiesMap: Record<string, any> = {};
     propertiesSnap.forEach((d) => { propertiesMap[d.id] = { id: d.id, ...d.data() }; });
-
-    const bks = bookingsSnap.docs.map((d) => ({
+    setProperties(propertiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    setBookings(bookingsSnap.docs.map((d) => ({
       id: d.id,
       ...d.data(),
       properties: propertiesMap[(d.data() as any).property_id] || null,
-    }));
-
-    setBookings(bks);
+    })));
   };
 
-  useEffect(() => { fetchBookings(); }, []);
+  useEffect(() => { fetchAll(); }, []);
+
+  // Check if proposed dates conflict with any existing booking (excluding current booking if editing)
+  const checkDateConflict = async (propertyId: string, checkIn: string, checkOut: string, excludeBookingId?: string): Promise<string | null> => {
+    if (!propertyId || !checkIn || !checkOut) return null;
+    const snap = await getDocs(query(
+      collection(db, "bookings"),
+      where("property_id", "==", propertyId),
+      where("booking_status", "!=", "cancelled"),
+    ));
+    const newIn = parseISO(checkIn);
+    const newOut = parseISO(checkOut);
+    for (const d of snap.docs) {
+      if (excludeBookingId && d.id === excludeBookingId) continue;
+      const data = d.data() as any;
+      if (!data.check_in_date || !data.check_out_date) continue;
+      const existIn = typeof data.check_in_date === "string" ? parseISO(data.check_in_date) : data.check_in_date.toDate();
+      const existOut = typeof data.check_out_date === "string" ? parseISO(data.check_out_date) : data.check_out_date.toDate();
+      // overlap check: newIn < existOut && newOut > existIn
+      if (newIn < existOut && newOut > existIn) {
+        return `Dates conflict with booking for ${data.guest_name || "another guest"} (${format(existIn, "MMM d")} – ${format(existOut, "MMM d, yyyy")})`;
+      }
+    }
+    return null;
+  };
+
+  const openEdit = (b: any) => {
+    setEditing(b);
+    const toDateStr = (val: any) => {
+      if (!val) return "";
+      if (val?.toDate) return format(val.toDate(), "yyyy-MM-dd");
+      return String(val).slice(0, 10);
+    };
+    const nights = b.check_in_date && b.check_out_date
+      ? Math.max(1, Math.ceil((new Date(toDateStr(b.check_out_date)).getTime() - new Date(toDateStr(b.check_in_date)).getTime()) / 86400000))
+      : 1;
+    const pricePerNight = nights > 0 ? Math.round(b.total_price / nights) : b.total_price;
+    setEditForm({
+      guest_name: b.guest_name || "",
+      num_guests: String(b.num_guests || 1),
+      check_in_date: toDateStr(b.check_in_date),
+      check_out_date: toDateStr(b.check_out_date),
+      price_per_night: String(pricePerNight || 0),
+    });
+    setDateConflict(null);
+    setEditOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!editing) return;
+    if (!editForm.check_in_date || !editForm.check_out_date || !editForm.guest_name) {
+      return toast({ title: "Missing fields", variant: "destructive" });
+    }
+    const checkIn = new Date(editForm.check_in_date);
+    const checkOut = new Date(editForm.check_out_date);
+    if (checkOut <= checkIn) {
+      return toast({ title: "Check-out must be after check-in", variant: "destructive" });
+    }
+    const conflict = await checkDateConflict(editing.property_id, editForm.check_in_date, editForm.check_out_date, editing.id);
+    if (conflict) {
+      setDateConflict(conflict);
+      return;
+    }
+    const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / 86400000);
+    const totalPrice = nights * Number(editForm.price_per_night);
+    try {
+      await updateDoc(doc(db, "bookings", editing.id), {
+        guest_name: editForm.guest_name,
+        num_guests: Number(editForm.num_guests),
+        check_in_date: editForm.check_in_date,
+        check_out_date: editForm.check_out_date,
+        total_price: totalPrice,
+        updatedAt: serverTimestamp(),
+      });
+      toast({ title: "Booking updated" });
+      setEditOpen(false);
+      fetchAll();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
 
   const updateStatus = async (id: string, status: string) => {
     try {
       await updateDoc(doc(db, "bookings", id), { booking_status: status, updatedAt: serverTimestamp() });
       toast({ title: `Booking ${status}` });
-      fetchBookings();
+      fetchAll();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "bookings", id));
+      toast({ title: "Booking deleted" });
+      fetchAll();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -45,8 +139,10 @@ const BookingsManagement = () => {
 
   const statusBadge = (s: string) => {
     const m: Record<string, string> = {
-      pending: "bg-warning/10 text-warning", confirmed: "bg-success/10 text-success",
-      cancelled: "bg-destructive/10 text-destructive", completed: "bg-info/10 text-info",
+      pending: "bg-warning/10 text-warning",
+      confirmed: "bg-success/10 text-success",
+      cancelled: "bg-destructive/10 text-destructive",
+      completed: "bg-info/10 text-info",
     };
     return m[s] || "bg-muted text-muted-foreground";
   };
@@ -67,6 +163,11 @@ const BookingsManagement = () => {
     }
     return true;
   });
+
+  const editNights = editForm.check_in_date && editForm.check_out_date
+    ? Math.max(0, Math.ceil((new Date(editForm.check_out_date).getTime() - new Date(editForm.check_in_date).getTime()) / 86400000))
+    : 0;
+  const editTotal = editNights * Number(editForm.price_per_night || 0);
 
   return (
     <div>
@@ -122,6 +223,9 @@ const BookingsManagement = () => {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(b)} title="Edit booking">
+                      <Pencil className="h-4 w-4 text-muted-foreground" />
+                    </Button>
                     {b.booking_status === "pending" && (
                       <>
                         <Button variant="ghost" size="icon" onClick={() => updateStatus(b.id, "confirmed")} title="Confirm">
@@ -137,6 +241,9 @@ const BookingsManagement = () => {
                         Complete
                       </Button>
                     )}
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(b.id)} title="Delete">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
                   </div>
                 </td>
               </tr>
@@ -144,6 +251,55 @@ const BookingsManagement = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Edit Booking Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Edit Booking</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Guest Name</Label>
+              <Input value={editForm.guest_name} onChange={(e) => setEditForm({ ...editForm, guest_name: e.target.value })} />
+            </div>
+            <div>
+              <Label>Property</Label>
+              <Input value={editing?.properties?.name || "—"} disabled className="bg-muted/30" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>No. of Pax</Label>
+                <Input type="number" min="1" value={editForm.num_guests} onChange={(e) => setEditForm({ ...editForm, num_guests: e.target.value })} />
+              </div>
+              <div>
+                <Label>Rate / Night (₱)</Label>
+                <Input type="number" value={editForm.price_per_night} onChange={(e) => { setEditForm({ ...editForm, price_per_night: e.target.value }); setDateConflict(null); }} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Check-in</Label>
+                <Input type="date" value={editForm.check_in_date} onChange={(e) => { setEditForm({ ...editForm, check_in_date: e.target.value }); setDateConflict(null); }} />
+              </div>
+              <div>
+                <Label>Check-out</Label>
+                <Input type="date" value={editForm.check_out_date} onChange={(e) => { setEditForm({ ...editForm, check_out_date: e.target.value }); setDateConflict(null); }} />
+              </div>
+            </div>
+            {editNights > 0 && (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <p className="text-muted-foreground">
+                  {editNights} night(s) × ₱{Number(editForm.price_per_night).toLocaleString()} ={" "}
+                  <span className="font-semibold text-foreground">₱{editTotal.toLocaleString()}</span>
+                </p>
+              </div>
+            )}
+            {dateConflict && (
+              <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{dateConflict}</div>
+            )}
+            <Button onClick={handleEditSave} className="w-full">Save Changes</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

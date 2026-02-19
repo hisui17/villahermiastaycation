@@ -9,8 +9,7 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import PropertiesManagement from "./pages/PropertiesManagement";
 import BookingsManagement from "./pages/BookingsManagement";
-import PaymentsManagement from "./pages/PaymentsManagement";
-import UsersManagement from "./pages/UsersManagement";
+import AnalyticsManagement from "./pages/AnalyticsManagement";
 import AdminLayout from "./components/AdminLayout";
 import NotFound from "./pages/NotFound";
 
@@ -75,8 +74,7 @@ const App = () => {
                                     <Route path="/dashboard" element={<DashboardPage />} />
                                     <Route path="/properties" element={<PropertiesManagement />} />
                                     <Route path="/bookings" element={<BookingsManagement />} />
-                                    <Route path="/payments" element={<PaymentsManagement />} />
-                                    <Route path="/users" element={<UsersManagement />} />
+                                    <Route path="/payments" element={<AnalyticsManagement />} />
                                 </Route>
 
                                 <Route path="*" element={<NotFound />} />
