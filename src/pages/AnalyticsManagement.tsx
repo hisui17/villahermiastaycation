@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { db } from "../firebase";
 import {
   collection, getDocs, addDoc, deleteDoc, doc, query, orderBy, serverTimestamp,
@@ -9,8 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { format } from "date-fns";
-import { Plus, Trash2, TrendingUp, TrendingDown, DollarSign, BarChart3 } from "lucide-react";
+import { format, parseISO, getMonth, getYear } from "date-fns";
+import { Plus, Trash2, TrendingUp, TrendingDown, DollarSign, BarChart3, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Expense {
   id: string;
@@ -24,6 +24,8 @@ interface Expense {
 
 const CATEGORIES = ["Maintenance", "Utilities", "Supplies", "Salary", "Marketing", "Taxes", "Other"];
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 const AnalyticsManagement = () => {
   const [bookings, setBookings] = useState<any[]>([]);
   const [properties, setProperties] = useState<any[]>([]);
@@ -31,6 +33,8 @@ const AnalyticsManagement = () => {
   const [selectedProperty, setSelectedProperty] = useState<string>("all");
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [expenseForm, setExpenseForm] = useState({ description: "", amount: "", category: "Maintenance", property_id: "all", date: format(new Date(), "yyyy-MM-dd") });
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   const fetchAll = async () => {
     const [bookingsSnap, propertiesSnap, expensesSnap] = await Promise.all([
@@ -84,32 +88,89 @@ const AnalyticsManagement = () => {
     }
   };
 
+  // Helper to normalize date
+  const toDate = (val: any): Date | null => {
+    if (!val) return null;
+    if (val?.toDate) return val.toDate();
+    try { return parseISO(String(val).slice(0, 10)); } catch { return null; }
+  };
+
+  // Available years
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    bookings.forEach((b) => { const d = toDate(b.check_in_date); if (d) years.add(getYear(d)); });
+    years.add(new Date().getFullYear());
+    return Array.from(years).sort((a, b) => b - a);
+  }, [bookings]);
+
+  const prevMonth = () => {
+    if (selectedMonth === 0) { setSelectedMonth(11); setSelectedYear((y) => y - 1); }
+    else setSelectedMonth((m) => m - 1);
+  };
+  const nextMonth = () => {
+    if (selectedMonth === 11) { setSelectedMonth(0); setSelectedYear((y) => y + 1); }
+    else setSelectedMonth((m) => m + 1);
+  };
+
   // ── Calculations ──────────────────────────────────────────
-  const filteredBookings = selectedProperty === "all"
+  // Property-level filter (for all-time breakdown & expense log)
+  const filteredByProperty = selectedProperty === "all"
     ? bookings
     : bookings.filter((b) => b.property_id === selectedProperty);
 
-  const filteredExpenses = selectedProperty === "all"
+  const filteredExpensesByProperty = selectedProperty === "all"
     ? expenses
     : expenses.filter((e) => e.property_id === selectedProperty || e.property_id === null);
 
-  // Expected payout = all confirmed/pending bookings (not cancelled)
-  const expectedPayout = filteredBookings
+  // Monthly-scoped bookings (property + month filter)
+  const monthlyBookings = useMemo(() => {
+    return filteredByProperty.filter((b) => {
+      const d = toDate(b.check_in_date);
+      if (!d) return false;
+      return getMonth(d) === selectedMonth && getYear(d) === selectedYear;
+    });
+  }, [filteredByProperty, selectedMonth, selectedYear]);
+
+  // Monthly expenses (property + month filter)
+  const monthlyExpenses = useMemo(() => {
+    return filteredExpensesByProperty.filter((e) => {
+      if (!e.date) return false;
+      try {
+        const d = new Date(e.date);
+        return getMonth(d) === selectedMonth && getYear(d) === selectedYear;
+      } catch { return false; }
+    });
+  }, [filteredExpensesByProperty, selectedMonth, selectedYear]);
+
+  // Expected payout (monthly) = all non-cancelled bookings in that month
+  const expectedPayout = monthlyBookings
     .filter((b) => b.booking_status !== "cancelled")
     .reduce((s: number, b: any) => s + Number(b.total_price || 0), 0);
 
-  // Actual payout = only completed bookings (recorded as gross income)
-  const actualPayout = filteredBookings
+  // Actual payout (monthly) = only completed bookings (gross income)
+  const actualPayout = monthlyBookings
     .filter((b) => b.booking_status === "completed")
     .reduce((s: number, b: any) => s + Number(b.total_price || 0), 0);
 
-  const totalExpenses = filteredExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const totalExpenses = monthlyExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
   const netIncome = actualPayout - totalExpenses;
 
-  // Per-property breakdown
+  // Per-property monthly breakdown
   const propertyBreakdown = properties.map((p) => {
-    const propBookings = bookings.filter((b) => b.property_id === p.id);
-    const propExpenses = expenses.filter((e) => e.property_id === p.id);
+    const propBookings = bookings.filter((b) => {
+      if (b.property_id !== p.id) return false;
+      const d = toDate(b.check_in_date);
+      if (!d) return false;
+      return getMonth(d) === selectedMonth && getYear(d) === selectedYear;
+    });
+    const propExpenses = expenses.filter((e) => {
+      if (e.property_id !== p.id) return false;
+      if (!e.date) return false;
+      try {
+        const d = new Date(e.date);
+        return getMonth(d) === selectedMonth && getYear(d) === selectedYear;
+      } catch { return false; }
+    });
     const expected = propBookings.filter((b) => b.booking_status !== "cancelled").reduce((s: number, b: any) => s + Number(b.total_price || 0), 0);
     const actual = propBookings.filter((b) => b.booking_status === "completed").reduce((s: number, b: any) => s + Number(b.total_price || 0), 0);
     const exp = propExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -117,9 +178,9 @@ const AnalyticsManagement = () => {
   });
 
   const statCards = [
-    { label: "Expected Payout", value: `₱${expectedPayout.toLocaleString()}`, icon: TrendingUp, accent: "bg-info/10 text-info", note: "Confirmed + pending bookings" },
-    { label: "Actual Payout (Gross)", value: `₱${actualPayout.toLocaleString()}`, icon: DollarSign, accent: "bg-success/10 text-success", note: "Completed bookings only" },
-    { label: "Total Expenses", value: `₱${totalExpenses.toLocaleString()}`, icon: TrendingDown, accent: "bg-destructive/10 text-destructive", note: "Recorded costs" },
+    { label: "Expected Payout", value: `₱${expectedPayout.toLocaleString()}`, icon: TrendingUp, accent: "bg-info/10 text-info", note: "Confirmed + pending this month" },
+    { label: "Actual Payout (Gross)", value: `₱${actualPayout.toLocaleString()}`, icon: DollarSign, accent: "bg-success/10 text-success", note: "Completed bookings this month" },
+    { label: "Total Expenses", value: `₱${totalExpenses.toLocaleString()}`, icon: TrendingDown, accent: "bg-destructive/10 text-destructive", note: "Recorded costs this month" },
     { label: "Net Income", value: `₱${netIncome.toLocaleString()}`, icon: BarChart3, accent: netIncome >= 0 ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive", note: "Gross – Expenses" },
   ];
 
@@ -133,16 +194,38 @@ const AnalyticsManagement = () => {
         <Button onClick={() => setExpenseOpen(true)}><Plus className="mr-2 h-4 w-4" /> Add Expense</Button>
       </div>
 
-      {/* Property Filter */}
-      <div className="mt-6">
+      {/* Filters: Property + Month */}
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         <Select value={selectedProperty} onValueChange={setSelectedProperty}>
-          <SelectTrigger className="w-56">
+          <SelectTrigger className="w-48">
             <SelectValue placeholder="All Properties" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Properties</SelectItem>
             {properties.map((p) => (
               <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Month navigator */}
+        <div className="flex items-center gap-1 rounded-lg border bg-card px-2 py-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMonth}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-sm font-medium w-28 text-center">
+            {MONTHS[selectedMonth]} {selectedYear}
+          </span>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMonth}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+          <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {availableYears.map((y) => (
+              <SelectItem key={y} value={String(y)}>{y}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -216,9 +299,9 @@ const AnalyticsManagement = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredExpenses.length === 0 ? (
+              {filteredExpensesByProperty.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No expenses recorded</td></tr>
-              ) : filteredExpenses.map((e) => {
+              ) : filteredExpensesByProperty.map((e) => {
                 const prop = properties.find((p) => p.id === e.property_id);
                 return (
                   <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
