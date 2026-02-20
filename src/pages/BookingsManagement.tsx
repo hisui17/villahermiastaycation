@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { format, eachDayOfInterval, parseISO, isWithinInterval } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { Check, X, Search, Pencil, Trash2 } from "lucide-react";
 
 const BookingsManagement = () => {
@@ -37,25 +37,30 @@ const BookingsManagement = () => {
 
   useEffect(() => { fetchAll(); }, []);
 
-  // Check if proposed dates conflict with any existing booking (excluding current booking if editing)
+  // Check date conflict scoped strictly to the same property.
+  // Fetches all bookings for that property and filters in-memory to avoid
+  // Firestore composite-index issues with `!=` operator.
   const checkDateConflict = async (propertyId: string, checkIn: string, checkOut: string, excludeBookingId?: string): Promise<string | null> => {
     if (!propertyId || !checkIn || !checkOut) return null;
+    // Only filter by property_id to avoid index issues; filter status in JS
     const snap = await getDocs(query(
       collection(db, "bookings"),
       where("property_id", "==", propertyId),
-      where("booking_status", "!=", "cancelled"),
     ));
     const newIn = parseISO(checkIn);
     const newOut = parseISO(checkOut);
     for (const d of snap.docs) {
+      // Always skip the booking being edited
       if (excludeBookingId && d.id === excludeBookingId) continue;
       const data = d.data() as any;
+      // Skip cancelled bookings (in-memory filter)
+      if (data.booking_status === "cancelled") continue;
       if (!data.check_in_date || !data.check_out_date) continue;
       const existIn = typeof data.check_in_date === "string" ? parseISO(data.check_in_date) : data.check_in_date.toDate();
       const existOut = typeof data.check_out_date === "string" ? parseISO(data.check_out_date) : data.check_out_date.toDate();
-      // overlap check: newIn < existOut && newOut > existIn
+      // Overlap: new range overlaps if newIn < existOut AND newOut > existIn
       if (newIn < existOut && newOut > existIn) {
-        return `Dates conflict with booking for ${data.guest_name || "another guest"} (${format(existIn, "MMM d")} – ${format(existOut, "MMM d, yyyy")})`;
+        return `Dates conflict with "${data.guest_name || "another guest"}" (${format(existIn, "MMM d")} – ${format(existOut, "MMM d, yyyy")}) on this property`;
       }
     }
     return null;
