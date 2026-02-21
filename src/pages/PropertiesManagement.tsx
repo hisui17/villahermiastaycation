@@ -70,19 +70,21 @@ const PropertiesManagement = () => {
   // Check for date overlap with existing confirmed/pending bookings
   const checkDateConflict = async (propertyId: string, checkIn: string, checkOut: string): Promise<string | null> => {
     if (!propertyId || !checkIn || !checkOut) return null;
+    // Only filter by property_id; filter status in JS to avoid index issues
     const snap = await getDocs(query(
       collection(db, "bookings"),
       where("property_id", "==", propertyId),
-      where("booking_status", "!=", "cancelled"),
     ));
     const newIn = parseISO(checkIn);
     const newOut = parseISO(checkOut);
     for (const d of snap.docs) {
       const data = d.data() as any;
+      if (data.booking_status === "cancelled") continue;
       if (!data.check_in_date || !data.check_out_date) continue;
       const existIn = typeof data.check_in_date === "string" ? parseISO(data.check_in_date) : data.check_in_date.toDate();
       const existOut = typeof data.check_out_date === "string" ? parseISO(data.check_out_date) : data.check_out_date.toDate();
-      if (newIn < existOut && newOut > existIn) {
+      // Allow same-day turnover: checkout 12nn, check-in 2pm
+      if (newIn.getTime() < existOut.getTime() && newOut.getTime() > existIn.getTime() && newIn.getTime() !== existOut.getTime() && newOut.getTime() !== existIn.getTime()) {
         return `Dates conflict with existing booking for ${data.guest_name || "a guest"} (${format(existIn, "MMM d")} – ${format(existOut, "MMM d, yyyy")})`;
       }
     }

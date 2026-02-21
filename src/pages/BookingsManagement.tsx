@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { format, parseISO } from "date-fns";
-import { Check, X, Search, Pencil, Trash2 } from "lucide-react";
+import { Search, Pencil, Trash2 } from "lucide-react";
 
 const BookingsManagement = () => {
   const [bookings, setBookings] = useState<any[]>([]);
@@ -59,7 +59,9 @@ const BookingsManagement = () => {
       const existIn = typeof data.check_in_date === "string" ? parseISO(data.check_in_date) : data.check_in_date.toDate();
       const existOut = typeof data.check_out_date === "string" ? parseISO(data.check_out_date) : data.check_out_date.toDate();
       // Overlap: new range overlaps if newIn < existOut AND newOut > existIn
-      if (newIn < existOut && newOut > existIn) {
+      // Allow same-day turnover: checkout is 12nn, check-in is 2pm
+      // So newIn === existOut is NOT a conflict
+      if (newIn.getTime() < existOut.getTime() && newOut.getTime() > existIn.getTime() && newIn.getTime() !== existOut.getTime() && newOut.getTime() !== existIn.getTime()) {
         return `Dates conflict with "${data.guest_name || "another guest"}" (${format(existIn, "MMM d")} – ${format(existOut, "MMM d, yyyy")}) on this property`;
       }
     }
@@ -146,6 +148,7 @@ const BookingsManagement = () => {
     const m: Record<string, string> = {
       pending: "bg-warning/10 text-warning",
       confirmed: "bg-success/10 text-success",
+      currently_hosting: "bg-primary/10 text-primary",
       cancelled: "bg-destructive/10 text-destructive",
       completed: "bg-info/10 text-info",
     };
@@ -190,6 +193,7 @@ const BookingsManagement = () => {
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="confirmed">Confirmed</SelectItem>
+            <SelectItem value="currently_hosting">Currently Hosting</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
@@ -227,25 +231,22 @@ const BookingsManagement = () => {
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>{b.booking_status}</span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex gap-1">
+                  <div className="flex items-center gap-1">
+                    <Select value={b.booking_status} onValueChange={(v) => updateStatus(b.id, v)}>
+                      <SelectTrigger className="h-8 w-[150px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="confirmed">Confirmed</SelectItem>
+                        <SelectItem value="currently_hosting">Currently Hosting</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(b)} title="Edit booking">
                       <Pencil className="h-4 w-4 text-muted-foreground" />
                     </Button>
-                    {b.booking_status === "pending" && (
-                      <>
-                        <Button variant="ghost" size="icon" onClick={() => updateStatus(b.id, "confirmed")} title="Confirm">
-                          <Check className="h-4 w-4 text-success" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => updateStatus(b.id, "cancelled")} title="Cancel">
-                          <X className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </>
-                    )}
-                    {b.booking_status === "confirmed" && (
-                      <Button variant="ghost" size="sm" onClick={() => updateStatus(b.id, "completed")}>
-                        Complete
-                      </Button>
-                    )}
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(b.id)} title="Delete">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

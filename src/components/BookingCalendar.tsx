@@ -62,7 +62,9 @@ const BookingCalendar = () => {
     bookings.forEach((b) => {
       if (!b.check_in_date || !b.check_out_date) return;
       try {
-        const days = eachDayOfInterval({ start: parseISO(b.check_in_date), end: parseISO(b.check_out_date) });
+        // Exclude checkout day since checkout is 12nn (day is free for new check-in at 2pm)
+        const allDays = eachDayOfInterval({ start: parseISO(b.check_in_date), end: parseISO(b.check_out_date) });
+        const days = allDays.slice(0, -1); // remove checkout day
         days.forEach((d) => {
           const key = format(d, "yyyy-MM-dd");
           const existing = map.get(key) || [];
@@ -85,6 +87,7 @@ const BookingCalendar = () => {
     const m: Record<string, string> = {
       pending: "text-warning",
       confirmed: "text-success",
+      currently_hosting: "text-primary",
       completed: "text-info",
     };
     return m[status] || "text-muted-foreground";
@@ -132,9 +135,14 @@ const BookingCalendar = () => {
                     return (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="relative cursor-pointer">
-                            {date.getDate()}
-                            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full bg-primary" />
+                          <span className="relative cursor-pointer flex flex-col items-center">
+                            <span>{date.getDate()}</span>
+                            <span className="text-[9px] leading-tight font-medium text-primary truncate max-w-[60px]">
+                              {dayBookings[0].guest_name || "Guest"}
+                            </span>
+                            {dayBookings.length > 1 && (
+                              <span className="text-[8px] text-muted-foreground">+{dayBookings.length - 1}</span>
+                            )}
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs">
@@ -142,7 +150,7 @@ const BookingCalendar = () => {
                             <div key={b.id} className="text-xs">
                               <span className="font-semibold">{b.guest_name || "Guest"}</span>
                               {" · "}{b.num_guests} pax
-                              {" · "}<span className={`capitalize ${statusColor(b.booking_status)}`}>{b.booking_status}</span>
+                              {" · "}<span className={`capitalize ${statusColor(b.booking_status)}`}>{b.booking_status?.replace("_", " ")}</span>
                             </div>
                           ))}
                         </TooltipContent>
@@ -180,7 +188,7 @@ const BookingCalendar = () => {
                     <div className="flex items-center gap-3 text-sm">
                       <span>{b.num_guests} pax</span>
                       <span>₱{Number(b.total_price).toLocaleString()}</span>
-                      <span className={`capitalize font-medium ${statusColor(b.booking_status)}`}>{b.booking_status}</span>
+                      <span className={`capitalize font-medium ${statusColor(b.booking_status)}`}>{b.booking_status?.replace("_", " ")}</span>
                     </div>
                   </div>
                 ))}

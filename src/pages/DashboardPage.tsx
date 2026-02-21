@@ -108,6 +108,7 @@ const DashboardPage = () => {
     const map: Record<string, string> = {
       pending: "bg-warning/10 text-warning",
       confirmed: "bg-success/10 text-success",
+      currently_hosting: "bg-primary/10 text-primary",
       cancelled: "bg-destructive/10 text-destructive",
       completed: "bg-info/10 text-info",
     };
@@ -253,7 +254,7 @@ const DashboardPage = () => {
                 <div className="text-right shrink-0">
                   <p className="font-semibold">₱{Number(b.total_price).toLocaleString()}</p>
                   <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>
-                    {b.booking_status}
+                    {b.booking_status?.replace("_", " ")}
                   </span>
                 </div>
               </div>
