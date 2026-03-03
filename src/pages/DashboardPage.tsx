@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { db } from "../firebase";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { Home, CalendarDays, DollarSign, TrendingUp, Clock, ChevronLeft, ChevronRight } from "lucide-react";
-import { format, parseISO, getMonth, getYear } from "date-fns";
+import { format, parseISO, getMonth, getYear, eachDayOfInterval, startOfDay, isAfter } from "date-fns";
 import BookingCalendar from "@/components/BookingCalendar";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const DashboardPage = () => {
-  const [stats, setStats] = useState({ properties: 0, bookings: 0, revenue: 0, pending: 0, confirmed: 0 });
+  const [stats, setStats] = useState({ properties: 0, bookings: 0, pending: 0, confirmed: 0 });
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
   const [allBookings, setAllBookings] = useState<any[]>([]);
   const [properties, setProperties] = useState<any[]>([]);
@@ -18,11 +18,17 @@ const DashboardPage = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [incomeView, setIncomeView] = useState<"all" | string>("all");
 
+  const toDate = (val: any): Date | null => {
+    if (!val) return null;
+    if (val?.toDate) return val.toDate();
+    try { return parseISO(String(val).slice(0, 10)); } catch { return null; }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       const [propertiesSnap, bookingsSnap] = await Promise.all([
         getDocs(collection(db, "properties")),
-        getDocs(query(collection(db, "bookings"), orderBy("createdAt", "desc"))),
+        getDocs(collection(db, "bookings")),
       ]);
 
       const propertiesMap: Record<string, any> = {};
@@ -34,14 +40,20 @@ const DashboardPage = () => {
         return { id: d.id, ...data, properties: propertiesMap[data.property_id] || null };
       });
 
-      // Lifetime gross = only completed bookings
-      const revenue = bks
-        .filter((b: any) => b.booking_status === "completed")
-        .reduce((s: number, b: any) => s + Number(b.total_price), 0);
+      // Sort by check-in date descending
+      bks.sort((a, b) => {
+        const dA = toDate(a.check_in_date);
+        const dB = toDate(b.check_in_date);
+        if (!dA && !dB) return 0;
+        if (!dA) return 1;
+        if (!dB) return -1;
+        return dB.getTime() - dA.getTime();
+      });
+
       const pending = bks.filter((b: any) => b.booking_status === "pending").length;
       const confirmed = bks.filter((b: any) => b.booking_status === "confirmed").length;
 
-      setStats({ properties: propertiesSnap.size, bookings: bks.length, revenue, pending, confirmed });
+      setStats({ properties: propertiesSnap.size, bookings: bks.length, pending, confirmed });
       setRecentBookings(bks.slice(0, 8));
       setAllBookings(bks);
       setProperties(props);
@@ -49,55 +61,68 @@ const DashboardPage = () => {
     fetchData();
   }, []);
 
-  // Helper: normalize date from Firestore Timestamp or string
-  const toDate = (val: any): Date | null => {
-    if (!val) return null;
-    if (val?.toDate) return val.toDate();
-    try { return parseISO(String(val).slice(0, 10)); } catch { return null; }
-  };
-
-  // Monthly income calculation
+  // Monthly income: use actual_payout, attributed to completed_at or check_out month
   const monthlyIncome = useMemo(() => {
-    const base = allBookings.filter((b) => {
-      if (b.booking_status !== "completed") return false;
-      const d = toDate(b.check_in_date);
-      if (!d) return false;
-      if (getMonth(d) !== selectedMonth || getYear(d) !== selectedYear) return false;
-      if (incomeView !== "all" && b.property_id !== incomeView) return false;
-      return true;
+    let total = 0;
+    allBookings.forEach((b) => {
+      if (b.booking_status !== "completed") return;
+      if (b.actual_payout == null) return;
+      // Use completed_at date for month attribution, fallback to check_out_date
+      const completionDate = toDate(b.completed_at) || toDate(b.check_out_date);
+      if (!completionDate) return;
+      if (getMonth(completionDate) !== selectedMonth || getYear(completionDate) !== selectedYear) return;
+      if (incomeView !== "all" && b.property_id !== incomeView) return;
+      total += Number(b.actual_payout || 0);
     });
-    return base.reduce((s, b) => s + Number(b.total_price || 0), 0);
+    return total;
   }, [allBookings, selectedMonth, selectedYear, incomeView]);
 
   // Per-property monthly breakdown
   const propertyMonthlyBreakdown = useMemo(() => {
     return properties.map((p) => {
-      const total = allBookings
-        .filter((b) => {
-          if (b.booking_status !== "completed") return false;
-          if (b.property_id !== p.id) return false;
-          const d = toDate(b.check_in_date);
-          if (!d) return false;
-          return getMonth(d) === selectedMonth && getYear(d) === selectedYear;
-        })
-        .reduce((s, b) => s + Number(b.total_price || 0), 0);
+      let total = 0;
+      allBookings.forEach((b) => {
+        if (b.booking_status !== "completed") return;
+        if (b.property_id !== p.id) return;
+        if (b.actual_payout == null) return;
+        const completionDate = toDate(b.completed_at) || toDate(b.check_out_date);
+        if (!completionDate) return;
+        if (getMonth(completionDate) !== selectedMonth || getYear(completionDate) !== selectedYear) return;
+        total += Number(b.actual_payout || 0);
+      });
       return { ...p, monthlyTotal: total };
     });
   }, [allBookings, properties, selectedMonth, selectedYear]);
 
-  // Available years from bookings
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     allBookings.forEach((b) => {
-      const d = toDate(b.check_in_date);
+      const d = toDate(b.check_out_date);
       if (d) years.add(getYear(d));
+      const d2 = toDate(b.completed_at);
+      if (d2) years.add(getYear(d2));
     });
     years.add(new Date().getFullYear());
     return Array.from(years).sort((a, b) => b - a);
   }, [allBookings]);
 
+  // Monthly gross for the top card
+  const currentMonthGross = useMemo(() => {
+    const now = new Date();
+    let total = 0;
+    allBookings.forEach((b) => {
+      if (b.booking_status !== "completed" || b.actual_payout == null) return;
+      const d = toDate(b.completed_at) || toDate(b.check_out_date);
+      if (!d) return;
+      if (getMonth(d) === now.getMonth() && getYear(d) === now.getFullYear()) {
+        total += Number(b.actual_payout || 0);
+      }
+    });
+    return total;
+  }, [allBookings]);
+
   const cards = [
-    { label: "Gross Income (All Time)", value: `₱${stats.revenue.toLocaleString()}`, icon: DollarSign, accent: "bg-primary/10 text-primary" },
+    { label: `Gross Income (${MONTHS[new Date().getMonth()]} ${new Date().getFullYear()})`, value: `₱${currentMonthGross.toLocaleString()}`, icon: DollarSign, accent: "bg-primary/10 text-primary" },
     { label: "Total Bookings", value: stats.bookings, icon: CalendarDays, accent: "bg-accent/10 text-accent" },
     { label: "Properties", value: stats.properties, icon: Home, accent: "bg-info/10 text-info" },
     { label: "Pending", value: stats.pending, icon: Clock, accent: "bg-warning/10 text-warning" },
@@ -163,14 +188,11 @@ const DashboardPage = () => {
               <DollarSign className="h-5 w-5 text-primary" />
               Monthly Gross Income
             </h2>
-            <p className="text-xs text-muted-foreground">From completed bookings only</p>
+            <p className="text-xs text-muted-foreground">From actual payouts of completed bookings</p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Property filter */}
             <Select value={incomeView} onValueChange={setIncomeView}>
-              <SelectTrigger className="w-44 h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="w-44 h-8 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Properties</SelectItem>
                 {properties.map((p) => (
@@ -178,7 +200,6 @@ const DashboardPage = () => {
                 ))}
               </SelectContent>
             </Select>
-            {/* Month navigator */}
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={prevMonth}>
                 <ChevronLeft className="h-4 w-4" />
@@ -190,7 +211,6 @@ const DashboardPage = () => {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-            {/* Year select */}
             <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
               <SelectTrigger className="w-24 h-8 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -210,7 +230,6 @@ const DashboardPage = () => {
           </p>
         </div>
 
-        {/* Per-property breakdown for the selected month */}
         {incomeView === "all" && propertyMonthlyBreakdown.some((p) => p.monthlyTotal > 0) && (
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {propertyMonthlyBreakdown
@@ -252,7 +271,9 @@ const DashboardPage = () => {
                   </p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="font-semibold">₱{Number(b.total_price).toLocaleString()}</p>
+                  <p className="font-semibold">
+                    {b.actual_payout != null ? `₱${Number(b.actual_payout).toLocaleString()}` : `₱${Number(b.total_price).toLocaleString()}`}
+                  </p>
                   <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>
                     {b.booking_status?.replace("_", " ")}
                   </span>
@@ -263,7 +284,6 @@ const DashboardPage = () => {
         )}
       </div>
 
-      {/* Booking Calendar Section */}
       <BookingCalendar />
     </div>
   );
