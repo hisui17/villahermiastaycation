@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
 import { Search, Pencil, Trash2 } from "lucide-react";
 
 const BookingsManagement = () => {
@@ -20,29 +20,78 @@ const BookingsManagement = () => {
   const [editForm, setEditForm] = useState({ guest_name: "", num_guests: "", check_in_date: "", check_out_date: "", price_per_night: "" });
   const [dateConflict, setDateConflict] = useState<string | null>(null);
 
+  // Actual payout dialog
+  const [payoutOpen, setPayoutOpen] = useState(false);
+  const [payoutBooking, setPayoutBooking] = useState<any>(null);
+  const [actualPayoutAmount, setActualPayoutAmount] = useState("");
+
+  const toDateVal = (val: any): Date | null => {
+    if (!val) return null;
+    if (val?.toDate) return val.toDate();
+    try { return parseISO(String(val).slice(0, 10)); } catch { return null; }
+  };
+
+  const autoUpdateStatuses = async (bks: any[]) => {
+    const today = startOfDay(new Date());
+    const updates: Promise<void>[] = [];
+
+    for (const b of bks) {
+      const checkIn = toDateVal(b.check_in_date);
+      const checkOut = toDateVal(b.check_out_date);
+      if (!checkIn || !checkOut) continue;
+
+      // Auto "currently_hosting": check-in has passed, checkout hasn't, and status is confirmed
+      if (b.booking_status === "confirmed" && !isAfter(startOfDay(checkIn), today) && isAfter(startOfDay(checkOut), today)) {
+        updates.push(updateDoc(doc(db, "bookings", b.id), { booking_status: "currently_hosting", updatedAt: serverTimestamp() }));
+        b.booking_status = "currently_hosting";
+      }
+      // Auto "completed": checkout date has passed and status is currently_hosting
+      else if (b.booking_status === "currently_hosting" && !isAfter(startOfDay(checkOut), today)) {
+        updates.push(updateDoc(doc(db, "bookings", b.id), { booking_status: "completed", updatedAt: serverTimestamp() }));
+        b.booking_status = "completed";
+      }
+    }
+
+    if (updates.length > 0) {
+      await Promise.all(updates);
+    }
+  };
+
   const fetchAll = async () => {
     const [bookingsSnap, propertiesSnap] = await Promise.all([
-      getDocs(query(collection(db, "bookings"), orderBy("createdAt", "desc"))),
+      getDocs(collection(db, "bookings")),
       getDocs(collection(db, "properties")),
     ]);
     const propertiesMap: Record<string, any> = {};
     propertiesSnap.forEach((d) => { propertiesMap[d.id] = { id: d.id, ...d.data() }; });
     setProperties(propertiesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    setBookings(bookingsSnap.docs.map((d) => ({
+
+    const bks = bookingsSnap.docs.map((d) => ({
       id: d.id,
       ...d.data(),
       properties: propertiesMap[(d.data() as any).property_id] || null,
-    })));
+    }));
+
+    // Auto-update statuses based on dates
+    await autoUpdateStatuses(bks);
+
+    // Sort by check-in date descending (newest first)
+    bks.sort((a: any, b: any) => {
+      const dateA = toDateVal(a.check_in_date);
+      const dateB = toDateVal(b.check_in_date);
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return dateB.getTime() - dateA.getTime();
+    });
+
+    setBookings(bks);
   };
 
   useEffect(() => { fetchAll(); }, []);
 
-  // Check date conflict scoped strictly to the same property.
-  // Fetches all bookings for that property and filters in-memory to avoid
-  // Firestore composite-index issues with `!=` operator.
   const checkDateConflict = async (propertyId: string, checkIn: string, checkOut: string, excludeBookingId?: string): Promise<string | null> => {
     if (!propertyId || !checkIn || !checkOut) return null;
-    // Only filter by property_id to avoid index issues; filter status in JS
     const snap = await getDocs(query(
       collection(db, "bookings"),
       where("property_id", "==", propertyId),
@@ -50,17 +99,12 @@ const BookingsManagement = () => {
     const newIn = parseISO(checkIn);
     const newOut = parseISO(checkOut);
     for (const d of snap.docs) {
-      // Always skip the booking being edited
       if (excludeBookingId && d.id === excludeBookingId) continue;
       const data = d.data() as any;
-      // Skip cancelled bookings (in-memory filter)
       if (data.booking_status === "cancelled") continue;
       if (!data.check_in_date || !data.check_out_date) continue;
       const existIn = typeof data.check_in_date === "string" ? parseISO(data.check_in_date) : data.check_in_date.toDate();
       const existOut = typeof data.check_out_date === "string" ? parseISO(data.check_out_date) : data.check_out_date.toDate();
-      // Overlap: new range overlaps if newIn < existOut AND newOut > existIn
-      // Allow same-day turnover: checkout is 12nn, check-in is 2pm
-      // So newIn === existOut is NOT a conflict
       if (newIn.getTime() < existOut.getTime() && newOut.getTime() > existIn.getTime() && newIn.getTime() !== existOut.getTime() && newOut.getTime() !== existIn.getTime()) {
         return `Dates conflict with "${data.guest_name || "another guest"}" (${format(existIn, "MMM d")} – ${format(existOut, "MMM d, yyyy")}) on this property`;
       }
@@ -118,6 +162,39 @@ const BookingsManagement = () => {
       });
       toast({ title: "Booking updated" });
       setEditOpen(false);
+      fetchAll();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // When admin sets status to "completed", prompt for actual payout
+  const handleStatusChange = (booking: any, newStatus: string) => {
+    if (newStatus === "completed") {
+      setPayoutBooking(booking);
+      setActualPayoutAmount(String(booking.total_price || 0));
+      setPayoutOpen(true);
+    } else {
+      updateStatus(booking.id, newStatus);
+    }
+  };
+
+  const handlePayoutConfirm = async () => {
+    if (!payoutBooking) return;
+    const amount = Number(actualPayoutAmount);
+    if (isNaN(amount) || amount < 0) {
+      return toast({ title: "Please enter a valid amount", variant: "destructive" });
+    }
+    try {
+      await updateDoc(doc(db, "bookings", payoutBooking.id), {
+        booking_status: "completed",
+        actual_payout: amount,
+        completed_at: new Date().toISOString().slice(0, 10),
+        updatedAt: serverTimestamp(),
+      });
+      toast({ title: "Booking completed with actual payout recorded" });
+      setPayoutOpen(false);
+      setPayoutBooking(null);
       fetchAll();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -209,14 +286,15 @@ const BookingsManagement = () => {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Pax</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Check-in</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Check-out</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Total</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Expected</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actual Payout</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No bookings found</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">No bookings found</td></tr>
             ) : filtered.map((b) => (
               <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3">
@@ -227,12 +305,15 @@ const BookingsManagement = () => {
                 <td className="px-4 py-3 text-muted-foreground">{formatDate(b.check_in_date)}</td>
                 <td className="px-4 py-3 text-muted-foreground">{formatDate(b.check_out_date)}</td>
                 <td className="px-4 py-3 font-medium">₱{Number(b.total_price).toLocaleString()}</td>
+                <td className="px-4 py-3 font-medium text-success">
+                  {b.actual_payout != null ? `₱${Number(b.actual_payout).toLocaleString()}` : "—"}
+                </td>
                 <td className="px-4 py-3">
-                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>{b.booking_status}</span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>{b.booking_status?.replace("_", " ")}</span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1">
-                    <Select value={b.booking_status} onValueChange={(v) => updateStatus(b.id, v)}>
+                    <Select value={b.booking_status} onValueChange={(v) => handleStatusChange(b, v)}>
                       <SelectTrigger className="h-8 w-[150px] text-xs">
                         <SelectValue />
                       </SelectTrigger>
@@ -303,6 +384,33 @@ const BookingsManagement = () => {
               <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{dateConflict}</div>
             )}
             <Button onClick={handleEditSave} className="w-full">Save Changes</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Actual Payout Dialog - shown when completing a booking */}
+      <Dialog open={payoutOpen} onOpenChange={setPayoutOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Record Actual Payout</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Please enter the actual amount received for <span className="font-semibold text-foreground">{payoutBooking?.guest_name}</span>'s booking.
+              This will be recorded as gross income.
+            </p>
+            <div className="rounded-lg bg-muted/50 p-3 text-sm">
+              <p className="text-muted-foreground">Expected: <span className="font-semibold text-foreground">₱{Number(payoutBooking?.total_price || 0).toLocaleString()}</span></p>
+            </div>
+            <div>
+              <Label>Actual Payout (₱)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={actualPayoutAmount}
+                onChange={(e) => setActualPayoutAmount(e.target.value)}
+                placeholder="Enter actual amount received"
+              />
+            </div>
+            <Button onClick={handlePayoutConfirm} className="w-full">Confirm & Complete Booking</Button>
           </div>
         </DialogContent>
       </Dialog>
