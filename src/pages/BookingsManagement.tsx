@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { format, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
-import { Search, Pencil, Trash2 } from "lucide-react";
+import { Search, Pencil, Trash2, DollarSign } from "lucide-react";
 
 const BookingsManagement = () => {
   const [bookings, setBookings] = useState<any[]>([]);
@@ -168,12 +168,16 @@ const BookingsManagement = () => {
     }
   };
 
+  const openPayoutDialog = (booking: any) => {
+    setPayoutBooking(booking);
+    setActualPayoutAmount(String(booking.actual_payout ?? booking.total_price ?? 0));
+    setPayoutOpen(true);
+  };
+
   // When admin sets status to "completed", prompt for actual payout
   const handleStatusChange = (booking: any, newStatus: string) => {
     if (newStatus === "completed") {
-      setPayoutBooking(booking);
-      setActualPayoutAmount(String(booking.total_price || 0));
-      setPayoutOpen(true);
+      openPayoutDialog(booking);
     } else {
       updateStatus(booking.id, newStatus);
     }
@@ -306,7 +310,19 @@ const BookingsManagement = () => {
                 <td className="px-4 py-3 text-muted-foreground">{formatDate(b.check_out_date)}</td>
                 <td className="px-4 py-3 font-medium">₱{Number(b.total_price).toLocaleString()}</td>
                 <td className="px-4 py-3 font-medium text-success">
-                  {b.actual_payout != null ? `₱${Number(b.actual_payout).toLocaleString()}` : "—"}
+                  {b.actual_payout != null ? (
+                    <button
+                      className="underline decoration-dotted cursor-pointer hover:text-success/80"
+                      onClick={() => openPayoutDialog(b)}
+                      title="Click to edit actual payout"
+                    >
+                      ₱{Number(b.actual_payout).toLocaleString()}
+                    </button>
+                  ) : b.booking_status === "completed" ? (
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => openPayoutDialog(b)}>
+                      <DollarSign className="h-3 w-3" /> Record
+                    </Button>
+                  ) : "—"}
                 </td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadge(b.booking_status)}`}>{b.booking_status?.replace("_", " ")}</span>
