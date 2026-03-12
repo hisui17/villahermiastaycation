@@ -12,6 +12,7 @@ import BookingsManagement from "./pages/BookingsManagement";
 import AnalyticsManagement from "./pages/AnalyticsManagement";
 import AdminLayout from "./components/AdminLayout";
 import NotFound from "./pages/NotFound";
+import PWAUpdatePrompt from "./components/PWAUpdatePrompt";
 
 const queryClient = new QueryClient();
 
@@ -56,6 +57,7 @@ const App = () => {
                 <TooltipProvider>
                     <Toaster />
                     <Sonner />
+                    <PWAUpdatePrompt />
                     <BrowserRouter>
 
                         {/* ? Correct Provider */}

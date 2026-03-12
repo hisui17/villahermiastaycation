@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => ({
     react(),
     mode === "development" && componentTagger(),
     VitePWA({
-      registerType: "autoUpdate",
+      registerType: "prompt",
       includeAssets: ["favicon.jpg", "apple-touch-icon.jpg", "pwa-192x192.jpg", "pwa-512x512.jpg"],
       manifest: {
         name: "Villa Hermia Staycation",
