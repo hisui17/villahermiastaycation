@@ -75,8 +75,18 @@ const BookingsManagement = () => {
     // Auto-update statuses based on dates
     await autoUpdateStatuses(bks);
 
-    // Sort by check-in date descending (newest first)
+    // Sort: currently_hosting first, then newest bookings, then completed/cancelled last
+    const statusOrder = (s: string) => {
+      if (s === "currently_hosting") return 0;
+      if (s === "confirmed" || s === "pending") return 1;
+      if (s === "completed") return 2;
+      if (s === "cancelled") return 3;
+      return 4;
+    };
     bks.sort((a: any, b: any) => {
+      const orderA = statusOrder(a.booking_status);
+      const orderB = statusOrder(b.booking_status);
+      if (orderA !== orderB) return orderA - orderB;
       const dateA = toDateVal(a.check_in_date);
       const dateB = toDateVal(b.check_in_date);
       if (!dateA && !dateB) return 0;
