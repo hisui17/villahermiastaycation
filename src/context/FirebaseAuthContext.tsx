@@ -3,14 +3,24 @@ import {
     onAuthStateChanged,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
-    signOut
+    signOut,
+    User
 } from "firebase/auth";
-import { auth } from "../firebase";
+import { auth, db } from "../firebase";
+import { doc, setDoc } from "firebase/firestore";
 
-const AuthContext = createContext(null);
+interface AuthContextType {
+    user: User | null;
+    loading: boolean;
+    signIn: (email: string, password: string) => Promise<void>;
+    signUp: (email: string, password: string, fullName: string) => Promise<void>;
+    logout: () => Promise<void>;
+}
 
-export const FirebaseAuthProvider = ({ children }) => {
-    const [user, setUser] = useState(null);
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export const FirebaseAuthProvider = ({ children }: { children: React.ReactNode }) => {
+    const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -18,17 +28,26 @@ export const FirebaseAuthProvider = ({ children }) => {
             setUser(firebaseUser);
             setLoading(false);
         });
-
         return () => unsubscribe();
     }, []);
 
-    const signIn = (email, password) =>
-        signInWithEmailAndPassword(auth, email, password);
+    const signIn = async (email: string, password: string) => {
+        await signInWithEmailAndPassword(auth, email, password);
+    };
 
-    const signUp = (email, password) =>
-        createUserWithEmailAndPassword(auth, email, password);
+    const signUp = async (email: string, password: string, fullName: string) => {
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await setDoc(doc(db, "users", cred.user.uid), {
+            fullName,
+            email,
+            role: "admin",
+            createdAt: new Date(),
+        });
+    };
 
-    const logout = () => signOut(auth);
+    const logout = async () => {
+        await signOut(auth);
+    };
 
     return (
         <AuthContext.Provider value={{ user, loading, signIn, signUp, logout }}>
@@ -38,5 +57,7 @@ export const FirebaseAuthProvider = ({ children }) => {
 };
 
 export const useFirebaseAuth = () => {
-    return useContext(AuthContext);
+    const ctx = useContext(AuthContext);
+    if (!ctx) throw new Error("useFirebaseAuth must be used within FirebaseAuthProvider");
+    return ctx;
 };
